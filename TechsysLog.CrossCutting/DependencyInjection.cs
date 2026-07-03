@@ -12,6 +12,7 @@ using TechsysLog.Infrastructure.ExternalServices;
 using TechsysLog.Infrastructure.WebSockets;
 using MongoDB.Driver;
 using Microsoft.Extensions.Options;
+using MongoDB.Driver.Core.Extensions.DiagnosticSources;
 
 namespace TechsysLog.CrossCutting;
 
@@ -32,7 +33,12 @@ public static class DependencyInjection
         services.AddSingleton<IMongoClient>(sp =>
         {
             var settings = sp.GetRequiredService<IOptions<MongoDbSettings>>();
-            return new MongoClient(settings.Value.ConnectionString);
+            var clientSettings = MongoClientSettings.FromConnectionString(settings.Value.ConnectionString);
+
+            clientSettings.ClusterConfigurator = cb =>
+                cb.Subscribe(new DiagnosticsActivityEventSubscriber());
+
+            return new MongoClient(clientSettings);
         });
         services.AddSingleton<MongoDbContext>();
         services.AddSignalR();
