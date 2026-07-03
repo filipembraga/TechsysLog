@@ -11,6 +11,7 @@ using TechsysLog.Application.Settings;
 using TechsysLog.Infrastructure.ExternalServices;
 using TechsysLog.Infrastructure.WebSockets;
 using MongoDB.Driver;
+using Microsoft.Extensions.Options;
 
 namespace TechsysLog.CrossCutting;
 
@@ -28,9 +29,12 @@ public static class DependencyInjection
         IConfiguration configuration)
     {
         services.Configure<MongoDbSettings>(configuration.GetSection("MongoDb"));
-        services.AddSingleton<MongoDbContext>();
         services.AddSingleton<IMongoClient>(sp =>
-            sp.GetRequiredService<MongoDbContext>().Client);
+        {
+            var settings = sp.GetRequiredService<IOptions<MongoDbSettings>>();
+            return new MongoClient(settings.Value.ConnectionString);
+        });
+        services.AddSingleton<MongoDbContext>();
         services.AddSignalR();
 
         services.AddViaCepClient(configuration);
