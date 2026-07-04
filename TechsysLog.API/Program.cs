@@ -114,7 +114,7 @@ builder.Services.AddOpenTelemetry()
         .AddAspNetCoreInstrumentation()
         .AddHttpClientInstrumentation()
         .AddSource("MongoDB.Driver.Core.Extensions.DiagnosticSources")
-        .AddConsoleExporter());
+        .AddOtlpExporter());
 
 var app = builder.Build();
 
