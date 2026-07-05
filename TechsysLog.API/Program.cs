@@ -111,7 +111,17 @@ builder.Services.AddOpenTelemetry()
             serviceName: "TechsysLog.API",
             serviceVersion: "1.0.0"))
     .WithTracing(tracing => tracing
-        .AddAspNetCoreInstrumentation()
+        .AddAspNetCoreInstrumentation(options =>
+        {
+            options.Filter = httpContext =>
+            {
+                var path = httpContext.Request.Path.Value ?? string.Empty;
+                return !path.StartsWith("/health", StringComparison.OrdinalIgnoreCase)
+                    && !path.StartsWith("/scalar", StringComparison.OrdinalIgnoreCase)
+                    && !path.StartsWith("/openapi", StringComparison.OrdinalIgnoreCase)
+                    && !path.Equals("/favicon.ico", StringComparison.OrdinalIgnoreCase);
+            };
+        })
         .AddHttpClientInstrumentation()
         .AddSource("MongoDB.Driver.Core.Extensions.DiagnosticSources")
         .AddOtlpExporter());

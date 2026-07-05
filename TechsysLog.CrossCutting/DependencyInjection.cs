@@ -35,8 +35,22 @@ public static class DependencyInjection
             var settings = sp.GetRequiredService<IOptions<MongoDbSettings>>();
             var clientSettings = MongoClientSettings.FromConnectionString(settings.Value.ConnectionString);
 
+            var mongoInstrumentationOptions = new InstrumentationOptions
+            {
+                ShouldStartActivity = @event =>
+                {
+                    var commandName = @event.CommandName;
+                    return commandName != "isMaster"
+                        && commandName != "hello"
+                        && commandName != "saslStart"
+                        && commandName != "saslContinue"
+                        && commandName != "buildInfo"
+                        && commandName != "ping";
+                }
+            };
+
             clientSettings.ClusterConfigurator = cb =>
-                cb.Subscribe(new DiagnosticsActivityEventSubscriber());
+                cb.Subscribe(new DiagnosticsActivityEventSubscriber(mongoInstrumentationOptions));
 
             return new MongoClient(clientSettings);
         });
