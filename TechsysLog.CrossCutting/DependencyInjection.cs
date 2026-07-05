@@ -11,6 +11,8 @@ using TechsysLog.Application.Settings;
 using TechsysLog.Infrastructure.ExternalServices;
 using TechsysLog.Infrastructure.WebSockets;
 using MongoDB.Driver;
+using Microsoft.Extensions.Options;
+using MongoDB.Driver.Core.Extensions.DiagnosticSources;
 
 namespace TechsysLog.CrossCutting;
 
@@ -28,9 +30,10 @@ public static class DependencyInjection
         IConfiguration configuration)
     {
         services.Configure<MongoDbSettings>(configuration.GetSection("MongoDb"));
-        services.AddSingleton<MongoDbContext>();
         services.AddSingleton<IMongoClient>(sp =>
-            sp.GetRequiredService<MongoDbContext>().Client);
+            CreateInstrumentedMongoClient(
+                sp.GetRequiredService<IOptions<MongoDbSettings>>().Value));
+        services.AddSingleton<MongoDbContext>();
         services.AddSignalR();
 
         services.AddViaCepClient(configuration);
@@ -58,5 +61,29 @@ public static class DependencyInjection
         services.AddScoped<INotificationService, NotificationService>();
 
         return services;
+    }
+
+    private static IMongoClient CreateInstrumentedMongoClient(MongoDbSettings settings)
+    {
+        var clientSettings = MongoClientSettings.FromConnectionString(settings.ConnectionString);
+
+        var instrumentationOptions = new InstrumentationOptions
+        {
+            ShouldStartActivity = @event =>
+            {
+                var commandName = @event.CommandName;
+                return commandName != "isMaster"
+                    && commandName != "hello"
+                    && commandName != "saslStart"
+                    && commandName != "saslContinue"
+                    && commandName != "buildInfo"
+                    && commandName != "ping";
+            }
+        };
+
+        clientSettings.ClusterConfigurator = cb =>
+            cb.Subscribe(new DiagnosticsActivityEventSubscriber(instrumentationOptions));
+
+        return new MongoClient(clientSettings);
     }
 }

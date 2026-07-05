@@ -6,6 +6,7 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using Scalar.AspNetCore;
+using TechsysLog.API.Extensions;
 using TechsysLog.API.Middleware;
 using TechsysLog.Application.Settings;
 using TechsysLog.CrossCutting;
@@ -103,6 +104,7 @@ builder.Services.AddHealthChecks()
     .AddCheck("self", () => HealthCheckResult.Healthy())
     .AddCheck<MongoDbHealthCheck>("mongodb", tags: new[] { "ready" });
 
+builder.Services.AddTechsysLogObservability();
 
 var app = builder.Build();
 
