@@ -19,14 +19,16 @@ API REST para gerenciamento de pedidos e entregas em contexto logístico, desenv
 
 ## Stack
 
-| Categoria      | Tecnologia                              |
-| -------------- | --------------------------------------- |
-| Runtime        | .NET 10 / ASP.NET Core                  |
-| Banco de dados | MongoDB (`MongoDB.Driver`)              |
-| Tempo real     | SignalR (WebSockets)                    |
-| Autenticação   | JWT (`System.IdentityModel.Tokens.Jwt`) |
-| Testes         | xUnit + Moq + FluentAssertions          |
-| Documentação   | OpenAPI + Scalar UI                     |
+| Categoria       | Tecnologia                                   |
+| --------------- | -------------------------------------------- |
+| Runtime         | .NET 10 / ASP.NET Core                       |
+| Banco de dados  | MongoDB (`MongoDB.Driver`)                   |
+| Tempo real      | SignalR (WebSockets)                         |
+| Autenticação    | JWT (`System.IdentityModel.Tokens.Jwt`)      |
+| Testes          | xUnit + Moq + FluentAssertions               |
+| Documentação    | OpenAPI + Scalar UI                          |
+| Observabilidade | OpenTelemetry + Jaeger (tracing distribuído) |
+| Conteinerização | Docker + Docker Compose                      |
 
 ---
 
@@ -297,11 +299,13 @@ Sobe o stack completo (API + frontend + MongoDB local) com um único comando.
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 - Ambos os repositórios clonados como irmãos:
+
 ```
 Dev/
 ├── TechsysLog-api/
 └── TechsysLog-frontend/
 ```
+
 **Passos**
 
 ```bash
@@ -419,43 +423,34 @@ Resultado: cobertura de **linha** caiu ligeiramente (esperado — menos testes r
 
 ### Implementado
 
-| Mecanismo                      | Implementação                                                                                                                                                                                                         |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Logging estruturado**        | `ILogger<T>` injetado nos serviços; logs com nível (`Information`, `Warning`, `Error`) e parâmetros nomeados (`{ZipCode}`, `{OrderId}`)                                                                               |
-| **Tratamento global de erros** | `ExceptionHandlingMiddleware` intercepta todas as exceções não tratadas e retorna respostas padronizadas com `statusCode` e `message` — stack traces nunca vazam para o cliente                                       |
-| **Log de degradação**          | Falhas no ViaCEP são registradas como `LogWarning` com contexto completo — sem interrupção do fluxo principal                                                                                                         |
-| **Correlation ID**             | `CorrelationIdMiddleware` injeta `X-Correlation-Id` em cada request — gerado no backend se não enviado pelo cliente, propagado nos logs via `BeginScope` e exposto na response header para rastreabilidade end-to-end |
-| **Health Checks**              | `GET /health` (liveness) e `GET /health/ready` (readiness com probe MongoDB) — endpoints padronizados para integração com orquestradores e load balancers                                                             |
+| Mecanismo                      | Implementação                                                                                                                                                                                                                                                                                       |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Logging estruturado**        | `ILogger<T>` injetado nos serviços; logs com nível (`Information`, `Warning`, `Error`) e parâmetros nomeados (`{ZipCode}`, `{OrderId}`)                                                                                                                                                             |
+| **Tratamento global de erros** | `ExceptionHandlingMiddleware` intercepta todas as exceções não tratadas e retorna respostas padronizadas com `statusCode` e `message` — stack traces nunca vazam para o cliente                                                                                                                     |
+| **Log de degradação**          | Falhas no ViaCEP são registradas como `LogWarning` com contexto completo — sem interrupção do fluxo principal                                                                                                                                                                                       |
+| **Correlation ID**             | `CorrelationIdMiddleware` injeta `X-Correlation-Id` em cada request — gerado no backend se não enviado pelo cliente, propagado nos logs via `BeginScope` e exposto na response header para rastreabilidade end-to-end                                                                               |
+| **Health Checks**              | `GET /health` (liveness) e `GET /health/ready` (readiness com probe MongoDB) — endpoints padronizados para integração com orquestradores e load balancers                                                                                                                                           |
+| **Distributed Tracing**        | OpenTelemetry com instrumentação nas três fronteiras de infraestrutura: requests HTTP de entrada (ASP.NET Core), chamadas HTTP de saída (ViaCEP via `HttpClient`), e operações de banco (MongoDB via `DiagnosticsActivityEventSubscriber`). Spans exportados via OTLP para Jaeger em Docker Compose |
+
+### Decisões de design
+
+**Vendor-neutral por arquitetura.** A instrumentação usa OpenTelemetry — o mesmo código exporta para Jaeger (desenvolvimento local) ou Datadog (produção) trocando apenas o exporter. Fonte → SDK → destino são eixos independentes.
+
+**Inversão de posse do `MongoClient`.** Para instrumentar o MongoDB de forma transversal (sem tocar `MongoDbContext` ou repositórios), a construção do `MongoClient` foi movida do `MongoDbContext` para o composition root (`CrossCutting`). O `DiagnosticsActivityEventSubscriber` é configurado na factory, invisível para as camadas de domínio e aplicação.
+
+**Filtro de ruído intencional.** Health checks (`/health`, `/health/ready`), assets de UI (`/scalar/*`, `/openapi/*`) e comandos de infraestrutura do driver MongoDB (`saslContinue`, `isMaster`, `hello`, `buildInfo`, `ping`) são excluídos do tracing — orquestradores batem em health checks a cada poucos segundos; instrumentá-los geraria volume sem valor diagnóstico.
+
+**Telemetria isolada da aplicação.** O exporter OTLP usa `BatchExportProcessor` por padrão — spans são enviados em background, fora do caminho quente do request. Se o Jaeger estiver indisponível, spans são descartados silenciosamente sem impacto na disponibilidade da API.
+
+**Configuração extraída.** `AddTechsysLogObservability()` em `API/Extensions/OpenTelemetryExtensions.cs` encapsula toda a configuração de tracing — `Program.cs` permanece declarativo.
 
 ### Próximos passos recomendados
 
-**OpenTelemetry**
+**Métricas de negócio** via `System.Diagnostics.Metrics` (nativo no .NET): pedidos criados por minuto, latência do ViaCEP, taxa de falha de enriquecimento de endereço.
 
-A arquitetura está preparada para adoção de OpenTelemetry sem mudanças nas camadas de domínio ou aplicação:
+**Aspire Dashboard** como alternativa ao Jaeger quando métricas forem adicionadas — o dashboard unifica traces, métricas e logs num único painel com UI mais moderna.
 
-```bash
-dotnet add package OpenTelemetry.Extensions.Hosting
-dotnet add package OpenTelemetry.Instrumentation.AspNetCore
-dotnet add package OpenTelemetry.Instrumentation.Http
-dotnet add package OpenTelemetry.Exporter.Otlp
-```
-
-```csharp
-builder.Services.AddOpenTelemetry()
-    .WithTracing(tracing => tracing
-        .AddAspNetCoreInstrumentation()
-        .AddHttpClientInstrumentation()
-        .AddMongoDBInstrumentation()
-        .AddOtlpExporter())
-    .WithMetrics(metrics => metrics
-        .AddAspNetCoreInstrumentation()
-        .AddRuntimeInstrumentation()
-        .AddOtlpExporter());
-```
-
-**Métricas de negócio**
-
-Contadores e histogramas via `System.Diagnostics.Metrics` (nativo no .NET) para métricas relevantes: pedidos criados por minuto, tempo de resposta do ViaCEP, taxa de falha de enriquecimento de endereço.
+**Sampling** em produção — um span por tentativa de retry Polly é valioso em desenvolvimento; sob carga real o volume cresce proporcionalmente ao número de retries e pode gerar custo em backends pagos como Datadog.
 
 </details>
 
@@ -694,11 +689,10 @@ Escute o evento `ReceiveNotification` para receber atualizações em tempo real 
 ## O que Ficou de Fora
 
 | Item                       | Motivo                                                                                                                                                                                                                                            |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Refresh Token Rotation** | (Estratégia sem rotação) implementada — ver [ADR-005](#adr-005--refresh-token-via-cookie-httponly-sem-rotação). Rotação com detecção de reuso avaliada como over-engineering para o estágio atual, mas mapeada para os próximos projetos pessoais |
 | **SignalR por usuário**    | Notificações são broadcast para todos os clientes conectados. Targeting por usuário exigiria SignalR Groups — documentado como próximo passo natural                                                                                              |
 | **Paginação**              | Não implementada dado o volume de dados esperado no contexto do desafio. A arquitetura suporta adição sem breaking changes                                                                                                                        |
-| **Docker / Compose**       | Implementado — multi-stage Dockerfile + docker-compose com MongoDB local. Ver seção [Como Executar](#como-executar)                                                                                                                               |     |
 | **Testes de integração**   | Infrastructure excluída da cobertura unitária. Testes de integração contra MongoDB real seriam o próximo passo para validar corretude das queries                                                                                                 |
 | **CQRS**                   | Avaliado e rejeitado para este escopo — ver [ADR-004](#adr-004--cqrs-rejeitado)                                                                                                                                                                   |
 | **Cache de CEP com Redis** | ViaCEP é gratuito e rápido — Redis adicionaria dependência operacional sem ganho mensurável no escopo atual. Documentado como próximo passo em Resiliência                                                                                        |
@@ -718,6 +712,8 @@ The solution follows **Clean Architecture** with four independent layers: **Doma
 Key decisions documented as ADRs: MongoDB over SQL ([ADR-001](#adr-001--mongodb-sobre-sql)), SignalR over polling with transport abstraction via `INotificationDispatcher` ([ADR-002](#adr-002--signalr-sobre-polling)), sequential order numbers (`ORD-00001`) over GUIDs ([ADR-003](#adr-003--número-de-pedido-sequencial-sobre-guid)), CQRS rejected as premature ([ADR-004](#adr-004--cqrs-rejeitado)), and a short-lived JWT access token paired with an httpOnly refresh token cookie, without rotation ([ADR-005](#adr-005--refresh-token-via-cookie-httponly-sem-rotação)).
 
 Observability additions post-challenge: `CorrelationIdMiddleware` for per-request traceability via `X-Correlation-Id` header and log scope propagation; health check endpoints (`/health`, `/health/ready`) with MongoDB readiness probe implemented as `IHealthCheck` in the Infrastructure layer.
+
+Distributed tracing via OpenTelemetry across all three infrastructure boundaries (ASP.NET Core requests, HttpClient/ViaCEP, MongoDB). Spans exported via OTLP to Jaeger running in Docker Compose. Noise filtered at both layers — health checks and UI assets from ASP.NET Core, infrastructure commands from the MongoDB driver. Configuration encapsulated in `AddTechsysLogObservability()`, keeping `Program.cs` declarative.
 
 ### Running
 
