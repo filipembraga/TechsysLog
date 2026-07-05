@@ -31,29 +31,8 @@ public static class DependencyInjection
     {
         services.Configure<MongoDbSettings>(configuration.GetSection("MongoDb"));
         services.AddSingleton<IMongoClient>(sp =>
-        {
-            var settings = sp.GetRequiredService<IOptions<MongoDbSettings>>();
-            var clientSettings = MongoClientSettings.FromConnectionString(settings.Value.ConnectionString);
-
-            var mongoInstrumentationOptions = new InstrumentationOptions
-            {
-                ShouldStartActivity = @event =>
-                {
-                    var commandName = @event.CommandName;
-                    return commandName != "isMaster"
-                        && commandName != "hello"
-                        && commandName != "saslStart"
-                        && commandName != "saslContinue"
-                        && commandName != "buildInfo"
-                        && commandName != "ping";
-                }
-            };
-
-            clientSettings.ClusterConfigurator = cb =>
-                cb.Subscribe(new DiagnosticsActivityEventSubscriber(mongoInstrumentationOptions));
-
-            return new MongoClient(clientSettings);
-        });
+            CreateInstrumentedMongoClient(
+                sp.GetRequiredService<IOptions<MongoDbSettings>>().Value));
         services.AddSingleton<MongoDbContext>();
         services.AddSignalR();
 
@@ -82,5 +61,29 @@ public static class DependencyInjection
         services.AddScoped<INotificationService, NotificationService>();
 
         return services;
+    }
+
+    private static IMongoClient CreateInstrumentedMongoClient(MongoDbSettings settings)
+    {
+        var clientSettings = MongoClientSettings.FromConnectionString(settings.ConnectionString);
+
+        var instrumentationOptions = new InstrumentationOptions
+        {
+            ShouldStartActivity = @event =>
+            {
+                var commandName = @event.CommandName;
+                return commandName != "isMaster"
+                    && commandName != "hello"
+                    && commandName != "saslStart"
+                    && commandName != "saslContinue"
+                    && commandName != "buildInfo"
+                    && commandName != "ping";
+            }
+        };
+
+        clientSettings.ClusterConfigurator = cb =>
+            cb.Subscribe(new DiagnosticsActivityEventSubscriber(instrumentationOptions));
+
+        return new MongoClient(clientSettings);
     }
 }

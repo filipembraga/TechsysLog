@@ -5,9 +5,8 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
-using OpenTelemetry.Resources;
-using OpenTelemetry.Trace;
 using Scalar.AspNetCore;
+using TechsysLog.API.Extensions;
 using TechsysLog.API.Middleware;
 using TechsysLog.Application.Settings;
 using TechsysLog.CrossCutting;
@@ -105,26 +104,7 @@ builder.Services.AddHealthChecks()
     .AddCheck("self", () => HealthCheckResult.Healthy())
     .AddCheck<MongoDbHealthCheck>("mongodb", tags: new[] { "ready" });
 
-builder.Services.AddOpenTelemetry()
-    .ConfigureResource(resource => resource
-        .AddService(
-            serviceName: "TechsysLog.API",
-            serviceVersion: "1.0.0"))
-    .WithTracing(tracing => tracing
-        .AddAspNetCoreInstrumentation(options =>
-        {
-            options.Filter = httpContext =>
-            {
-                var path = httpContext.Request.Path.Value ?? string.Empty;
-                return !path.StartsWith("/health", StringComparison.OrdinalIgnoreCase)
-                    && !path.StartsWith("/scalar", StringComparison.OrdinalIgnoreCase)
-                    && !path.StartsWith("/openapi", StringComparison.OrdinalIgnoreCase)
-                    && !path.Equals("/favicon.ico", StringComparison.OrdinalIgnoreCase);
-            };
-        })
-        .AddHttpClientInstrumentation()
-        .AddSource("MongoDB.Driver.Core.Extensions.DiagnosticSources")
-        .AddOtlpExporter());
+builder.Services.AddTechsysLogObservability();
 
 var app = builder.Build();
 
