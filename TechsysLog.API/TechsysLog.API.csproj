@@ -23,6 +23,7 @@
   <ItemGroup>
     <ProjectReference Include="../TechsysLog.Application/TechsysLog.Application.csproj" />
     <ProjectReference Include="../TechsysLog.CrossCutting/TechsysLog.CrossCutting.csproj" />
+    <ProjectReference Include="..\TechsysLog.ServiceDefaults\TechsysLog.ServiceDefaults.csproj" />
   </ItemGroup>
 
 </Project>
