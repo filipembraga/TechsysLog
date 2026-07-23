@@ -1,5 +1,3 @@
-// Arquivo: TechsysLog.API/Extensions/OpenTelemetryExtensions.cs
-
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 
