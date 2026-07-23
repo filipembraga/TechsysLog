@@ -16,6 +16,8 @@ using TechsysLog.Infrastructure.WebSockets.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.AddServiceDefaults();
+
 builder.Services.AddOpenApi("v1", options =>
 {
     options.AddDocumentTransformer((document, _, _) =>
